@@ -246,29 +246,33 @@ private func expandPeerMacroMember(
   in context: some MacroExpansionContext,
   indentationWidth: Trivia
 ) throws -> MemberBlockItemListSyntax? {
-  if let variable = attachedTo.as(VariableDeclSyntax.self), variable.bindings.count > 1 {
-    throw MacroApplicationError.peerMacroOnVariableWithMultipleBindings
-  }
+  // The compiler expands a peer macro once for every binding in a variable
+  // declaration, passing the entire declaration to each expansion.
+  let expansionCount = attachedTo.as(VariableDeclSyntax.self)?.bindings.count ?? 1
 
-  guard
-    let expanded = expandAttachedMacro(
-      definition: definition,
-      macroRole: .peer,
-      attributeNode: attributeNode.detach(in: context, foldingWith: .standardOperators),
-      node: attachedTo.detach(in: context),
-      parentDeclNode: nil,
-      extendedType: nil,
-      conformanceList: nil,
-      in: context,
-      indentationWidth: indentationWidth
-    )
-  else {
-    return nil
+  var expandedSources: [String] = []
+  for _ in 0..<expansionCount {
+    guard
+      let expanded = expandAttachedMacro(
+        definition: definition,
+        macroRole: .peer,
+        attributeNode: attributeNode.detach(in: context, foldingWith: .standardOperators),
+        node: attachedTo.detach(in: context),
+        parentDeclNode: nil,
+        extendedType: nil,
+        conformanceList: nil,
+        in: context,
+        indentationWidth: indentationWidth
+      )
+    else {
+      continue
+    }
+    expandedSources.append(expanded)
   }
 
   // Separate the peers and the declaration by two newlines.
-  let indentedSource = "\n\n" + expanded.indented(by: attachedTo.indentationOfFirstLine)
-  return "\(raw: indentedSource)"
+  let indentedSource = expandedSources.map { "\n\n" + $0.indented(by: attachedTo.indentationOfFirstLine) }.joined()
+  return indentedSource.isEmpty ? nil : "\(raw: indentedSource)"
 }
 
 private func expandPeerMacroCodeItem(
@@ -278,29 +282,33 @@ private func expandPeerMacroCodeItem(
   in context: some MacroExpansionContext,
   indentationWidth: Trivia
 ) throws -> CodeBlockItemListSyntax? {
-  if let variable = attachedTo.as(VariableDeclSyntax.self), variable.bindings.count > 1 {
-    throw MacroApplicationError.peerMacroOnVariableWithMultipleBindings
-  }
+  // The compiler expands a peer macro once for every binding in a variable
+  // declaration, passing the entire declaration to each expansion.
+  let expansionCount = attachedTo.as(VariableDeclSyntax.self)?.bindings.count ?? 1
 
-  guard
-    let expanded = expandAttachedMacro(
-      definition: definition,
-      macroRole: .peer,
-      attributeNode: attributeNode.detach(in: context, foldingWith: .standardOperators),
-      node: attachedTo.detach(in: context),
-      parentDeclNode: nil,
-      extendedType: nil,
-      conformanceList: nil,
-      in: context,
-      indentationWidth: indentationWidth
-    )
-  else {
-    return nil
+  var expandedSources: [String] = []
+  for _ in 0..<expansionCount {
+    guard
+      let expanded = expandAttachedMacro(
+        definition: definition,
+        macroRole: .peer,
+        attributeNode: attributeNode.detach(in: context, foldingWith: .standardOperators),
+        node: attachedTo.detach(in: context),
+        parentDeclNode: nil,
+        extendedType: nil,
+        conformanceList: nil,
+        in: context,
+        indentationWidth: indentationWidth
+      )
+    else {
+      continue
+    }
+    expandedSources.append(expanded)
   }
 
   // Separate the peers and the declaration by two newlines.
-  let indentedSource = "\n\n" + expanded.indented(by: attachedTo.indentationOfFirstLine)
-  return "\(raw: indentedSource)"
+  let indentedSource = expandedSources.map { "\n\n" + $0.indented(by: attachedTo.indentationOfFirstLine) }.joined()
+  return indentedSource.isEmpty ? nil : "\(raw: indentedSource)"
 }
 
 /// Expand an accessor macro of a declaration that does not have existing
@@ -628,7 +636,6 @@ let diagnosticDomain: String = "SwiftSyntaxMacroExpansion"
 
 private enum MacroApplicationError: DiagnosticMessage, Error {
   case accessorMacroOnVariableWithMultipleBindings
-  case peerMacroOnVariableWithMultipleBindings
   case malformedAccessor
 
   var diagnosticID: MessageID {
@@ -641,8 +648,6 @@ private enum MacroApplicationError: DiagnosticMessage, Error {
     switch self {
     case .accessorMacroOnVariableWithMultipleBindings:
       return "accessor macro can only be applied to a single variable"
-    case .peerMacroOnVariableWithMultipleBindings:
-      return "peer macro can only be applied to a single variable"
     case .malformedAccessor:
       return """
         macro returned a malformed accessor. Accessors should start with an introducer like 'get' or 'set'.

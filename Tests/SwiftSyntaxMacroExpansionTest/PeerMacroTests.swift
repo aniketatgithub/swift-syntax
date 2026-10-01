@@ -164,6 +164,9 @@ final class PeerMacroTests: XCTestCase {
       }
     }
 
+    // The compiler expands the peer macro once per binding, so the peers are
+    // generated twice, matching what the compiler produces (which then reports
+    // a redeclaration error when compiling the expanded source).
     assertMacroExpansion(
       """
       @Test
@@ -171,10 +174,11 @@ final class PeerMacroTests: XCTestCase {
       """,
       expandedSource: """
         let a = 17, b = 12
+
+        var baz: Int = 0
+
+        var baz: Int = 0
         """,
-      diagnostics: [
-        DiagnosticSpec(message: "peer macro can only be applied to a single variable", line: 1, column: 1)
-      ],
       macros: ["Test": TestMacro.self]
     )
 
@@ -188,13 +192,55 @@ final class PeerMacroTests: XCTestCase {
       expandedSource: """
         struct Foo {
           let a = 17, b = 12
+
+          var baz: Int = 0
+
+          var baz: Int = 0
         }
         """,
-      diagnostics: [
-        DiagnosticSpec(message: "peer macro can only be applied to a single variable", line: 2, column: 3)
-      ],
       macros: ["Test": TestMacro.self]
     )
+  }
+
+  func testPeerMacroOnVariableWithMultipleBindingsReturningNoPeers() {
+    struct TestMacro: PeerMacro {
+      nonisolated(unsafe) static var invocationCount = 0
+      nonisolated(unsafe) static var observedBindingCounts: [Int] = []
+
+      static func expansion(
+        of node: AttributeSyntax,
+        providingPeersOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+      ) throws -> [DeclSyntax] {
+        invocationCount += 1
+        // The compiler passes the entire variable declaration to every expansion.
+        observedBindingCounts.append(declaration.as(VariableDeclSyntax.self)!.bindings.count)
+        return []
+      }
+    }
+    TestMacro.invocationCount = 0
+    TestMacro.observedBindingCounts = []
+
+    // Mirrors https://github.com/swiftlang/swift-syntax/issues/3320: the macro
+    // must be expanded instead of producing a diagnostic, matching the compiler.
+    assertMacroExpansion(
+      """
+      struct Foo {
+        @Test
+        var a: Int, b: Int
+      }
+      """,
+      expandedSource: """
+        struct Foo {
+          var a: Int, b: Int
+        }
+        """,
+      macros: ["Test": TestMacro.self]
+    )
+
+    // The compiler expands the peer macro once per binding.
+    XCTAssertEqual(TestMacro.invocationCount, 2)
+    XCTAssertEqual(TestMacro.observedBindingCounts, [2, 2])
   }
 
   func testEmpty() {
